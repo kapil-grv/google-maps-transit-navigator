@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google Maps Directions</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f4;
+        }
+
+        #map {
+            height: 100vh;
+            width: 100%;
+        }
+
+        .form-container {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            right: 10px;
+            background-color: white;
+            padding: 10px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+            z-index: 999;
+        }
+
+        .form-container label {
+            font-size: 14px;
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        .form-container input {
+            width: calc(100% - 40px);
+            padding: 8px;
+            margin-bottom: 10px;
+            font-size: 14px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+
+        .form-container .gps-btn {
+            position: absolute;
+            top: 0;
+            right: -8px;
+            width: 30px;
+            height: 30px;
+            border: none;
+            background: url('https://cdn-icons-png.flaticon.com/512/684/684908.png') no-repeat center;
+            background-size: 20px 20px;
+            cursor: pointer;
+        }
+
+        .form-container button {
+            width: 100%;
+            padding: 10px;
+            background-color: #4CAF50;
+            color: white;
+            font-size: 14px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-bottom: 5px;
+        }
+
+        .form-container button:hover {
+            background-color: #45a049;
+        }
+
+        #sliderPanel {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background-color: #fff;
+            box-shadow: 0 -2px 5px rgba(0, 0, 0, 0.3);
+            z-index: 999;
+            border-top-left-radius: 10px;
+            border-top-right-radius: 10px;
+            min-height: 50px;
+            max-height: calc(100vh - 100px);
+            /* Leave space for the top form */
+            touch-action: none;
+            /* Prevents default touch actions */
+        }
+
+        #sliderPanel .drag-handle {
+            width: 50px;
+            height: 5px;
+            background-color: #ccc;
+            margin: 10px auto;
+            border-radius: 5px;
+            cursor: grab;
+        }
+
+        #sliderPanel.dragging .drag-handle {
+            cursor: grabbing;
+        }
+
+        #directionsContainer {
+            padding: 20px;
+            height: calc(100% - 25px);
+            overflow-y: auto;
+        }
+
+        .step {
+            margin-bottom: 15px;
+            padding: 10px;
+            border-radius: 8px;
+            box-shadow: 0 1px 5px rgba(0, 0, 0, 0.1);
+        }
+
+        .step h4 {
+            margin-bottom: 5px;
+            color: #333;
+        }
+
+        .step p {
+            margin: 0;
+            color: #555;
+        }
+
+        /* Transport mode specific backgrounds */
+        .step.WALKING {
+            background-color: #e8f5e9;
+        }
+
+        .step.TRANSIT {
+            background-color: #e3f2fd;
+        }
+
+        .mode-buttons {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .mode-button {
+            flex: 1;
+        }
+
+        .mode-button.active {
+            background-color: #2196F3;
+        }
+
+        .no-routes {
+            padding: 20px;
+            text-align: center;
+            color: #f44336;
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="map"></div>
+
+    <div class="form-container">
+        <label for="origin">Start Location:</label>
+        <div style="position: relative;">
+            <input type="text" id="origin" placeholder="Enter starting location" />
+            <button class="gps-btn" id="gpsButton"></button>
+        </div>
+
+        <label for="destination">Destination:</label>
+        <input type="text" id="destination" placeholder="Enter destination" />
+
+        <button onclick="calculateRoute()">Get Directions</button>
+    </div>
+
+    <div id="sliderPanel">
+        <div class="drag-handle"></div>
+        <div id="directionsContainer"></div>
+    </div>
+
+    <script
+        src="https://maps.googleapis.com/maps/api/js?key={GMAPS_KEY}&libraries=places&callback=initMap"
+        async defer></script>
+    <script>
+        let map;
+        let directionsService;
+        let directionsRenderer;
+        let destinationAutocomplete;
+        let sliderPanel;
+        let isDragging = false;
+        let startY;
+        let startHeight;
+
+        function initMap() {
+            map = new google.maps.Map(document.getElementById('map'), {
+                center: { lat: 37.7749, lng: -122.4194 },
+                zoom: 12
+            });
+
+            directionsService = new google.maps.DirectionsService();
+            directionsRenderer = new google.maps.DirectionsRenderer({
+                map: map
+            });
+
+            const destinationInput = document.getElementById("destination");
+            destinationAutocomplete = new google.maps.places.Autocomplete(destinationInput);
+
+            destinationAutocomplete.addListener("place_changed", () => {
+                const place = destinationAutocomplete.getPlace();
+                if (place.geometry) {
+                    destinationInput.value = place.formatted_address;
+                }
+            });
+
+            const originInput = document.getElementById("origin");
+            originAutocomplete = new google.maps.places.Autocomplete(originInput);
+
+            originAutocomplete.addListener("place_changed", () => {
+                const place = originAutocomplete.getPlace();
+                if (place.geometry) {
+                    originInput.value = place.formatted_address;
+                }
+            });
+
+            document.getElementById('gpsButton').addEventListener('click', setCurrentLocation);
+
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    position => {
+                        const userLocation = {
+                            lat: position.coords.latitude,
+                            lng: position.coords.longitude
+                        };
+                        map.setCenter(userLocation);
+                    },
+                    () => {
+                        console.warn("Geolocation failed or permission denied.");
+                    }
+                );
+            }
+
+            // Initialize slider functionality
+            sliderPanel = document.getElementById('sliderPanel');
+            const dragHandle = sliderPanel.querySelector('.drag-handle');
+
+            // Mouse events
+            dragHandle.addEventListener('mousedown', startDragging);
+            document.addEventListener('mousemove', drag);
+            document.addEventListener('mouseup', stopDragging);
+
+            // Touch events
+            dragHandle.addEventListener('touchstart', startDragging);
+            document.addEventListener('touchmove', drag);
+            document.addEventListener('touchend', stopDragging);
+        }
+
+        function startDragging(e) {
+            isDragging = true;
+            sliderPanel.classList.add('dragging');
+
+            // Get the current touch or mouse position
+            startY = e.type === 'mousedown' ? e.clientY : e.touches[0].clientY;
+            startHeight = sliderPanel.offsetHeight;
+
+            e.preventDefault(); // Prevent text selection
+        }
+
+        function drag(e) {
+            if (!isDragging) return;
+
+            // Calculate new height
+            const currentY = e.type === 'mousemove' ? e.clientY : e.touches[0].clientY;
+            const deltaY = startY - currentY;
+            const newHeight = startHeight + deltaY;
+
+            // Constrain height between min and max values
+            const maxHeight = window.innerHeight - 100; // Leave space for top form
+            const minHeight = 50; // Minimum height for the handle
+
+            if (newHeight >= minHeight && newHeight <= maxHeight) {
+                sliderPanel.style.height = `${newHeight}px`;
+            }
+        }
+
+        function stopDragging() {
+            isDragging = false;
+            sliderPanel.classList.remove('dragging');
+        }
+
+        function setMode(mode) {
+            currentMode = mode;
+            // Update button styles
+            document.querySelectorAll('.mode-button').forEach(button => {
+                button.classList.remove('active');
+            });
+            document.querySelector(`.mode-button:nth-child(${mode === 'DRIVING' ? 1 : mode === 'TRANSIT' ? 2 : 3
+                })`).classList.add('active');
+        }
+
+        function setCurrentLocation() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    position => {
+                        const lat = position.coords.latitude;
+                        const lng = position.coords.longitude;
+                        document.getElementById("origin").value = `${lat},${lng}`;
+                        map.setCenter({ lat, lng });
+                        map.setZoom(15);
+                    },
+                    (error) => {
+                        let errorMessage = "Location error: ";
+                        switch (error.code) {
+                            case error.PERMISSION_DENIED:
+                                errorMessage += "Please enable location services.";
+                                break;
+                            case error.POSITION_UNAVAILABLE:
+                                errorMessage += "Location unavailable.";
+                                break;
+                            case error.TIMEOUT:
+                                errorMessage += "Request timed out.";
+                                break;
+                            default:
+                                errorMessage += "Unknown error occurred.";
+                        }
+                        alert(errorMessage);
+                    }
+                );
+            } else {
+                alert("Geolocation not supported.");
+            }
+        }
+
+        function calculateRoute() {
+            const origin = document.getElementById("origin").value;
+            const destination = document.getElementById("destination").value;
+
+            if (origin && destination) {
+                const originLocation = origin.includes(',') ? origin : origin;
+
+                const request = {
+                    origin: originLocation,
+                    destination: destination,
+                    travelMode: google.maps.TravelMode.TRANSIT
+                };
+
+                directionsService.route(request, (response, status) => {
+                    if (status === google.maps.DirectionsStatus.OK) {
+                        directionsRenderer.setDirections(response);
+                        displaySteps(response.routes[0].legs[0].steps);
+                    } else if (status === google.maps.DirectionsStatus.ZERO_RESULTS) {
+                        displayNoTransitAvailable();
+                    } else {
+                        alert("Directions request failed due to: " + status);
+                    }
+                });
+            } else {
+                alert("Please enter both origin and destination.");
+            }
+        }
+
+        function displayNoTransitAvailable() {
+            const directionsContainer = document.getElementById('directionsContainer');
+            directionsContainer.innerHTML = '<div class="no-routes">No public transport routes found for this journey.</div>';
+            directionsRenderer.setDirections({ routes: [] });
+        }
+
+        function displaySteps(steps) {
+            const directionsContainer = document.getElementById('directionsContainer');
+            directionsContainer.innerHTML = '';
+
+            steps.forEach((step, index) => {
+                const stepElement = document.createElement('div');
+                stepElement.classList.add('step');
+                stepElement.classList.add(step.travel_mode);
+
+                let instructionsText = step.instructions;
+                if (step.travel_mode === 'TRANSIT' && step.transit) {
+                    instructionsText += `<br>Take ${step.transit.line.vehicle.name} ${step.transit.line.short_name || step.transit.line.name}`;
+                }
+
+                stepElement.innerHTML = `
+                    <h4>Step ${index + 1}:</h4>
+                    <p><strong>${step.distance.text}</strong> - ${instructionsText}</p>
+                `;
+                directionsContainer.appendChild(stepElement);
+            });
+        }
+    </script>
+</body>
+
+</html>
