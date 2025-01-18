@@ -178,10 +178,6 @@
         <div class="drag-handle"></div>
         <div id="directionsContainer"></div>
     </div>
-
-    <script
-        src="https://maps.googleapis.com/maps/api/js?key={GMAPS_KEY}&libraries=places&callback=initMap"
-        async defer></script>
     <script>
         let map;
         let directionsService;
@@ -253,6 +249,21 @@
             dragHandle.addEventListener('touchstart', startDragging);
             document.addEventListener('touchmove', drag);
             document.addEventListener('touchend', stopDragging);
+        }
+
+        function loadGoogleMapsAPI() {
+            const apiKey = prompt("Please enter your Google Maps API key:");
+            if (!apiKey) {
+                alert("API key is required to load the map.");
+                return;
+            }
+
+            const script = document.createElement("script");
+            script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&callback=initMap`;
+            script.async = true;
+            script.defer = true;
+            script.onerror = () => alert("Failed to load Google Maps API. Check your API key.");
+            document.head.appendChild(script);
         }
 
         function startDragging(e) {
@@ -386,6 +397,7 @@
                 directionsContainer.appendChild(stepElement);
             });
         }
+        window.onload = loadGoogleMapsAPI;
     </script>
 </body>
 
